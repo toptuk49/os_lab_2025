@@ -15,141 +15,192 @@
 #include "find_min_max.h"
 #include "utils.h"
 
+#define FILENAME_TEMPLATE "child_result_%d.txt"
+
+typedef struct {
+  int seed;
+  int array_size;
+  int process_count;
+  bool use_files;
+} ProgramArguments;
+
+bool ParseArguments(int argc, char **argv, ProgramArguments *arguments);
+void RunChildProcess(int process_index, int *array, int array_size, int process_count, bool use_files, int pipe_fd[2]);
+void SaveMinMaxToFile(int process_index, struct MinMax result);
+void LoadMinMaxFromFile(int process_index, struct MinMax *result);
+struct MinMax CollectResultsFromChildren(int process_count, bool use_files, int pipes[][2]);
+
+// 1. Считать и проверить аргументы
+// 2. Сгенерировать массив
+// 3. Засечь время
+// 4. Запустить дочерние процессы
+// 5. Дождаться всех дочерних процессов
+// 6. Собрать min/max от дочерних процессов
+// 7. Вывести результат
+
 int main(int argc, char **argv) {
-  int seed = -1;
-  int array_size = -1;
-  int pnum = -1;
-  bool with_files = false;
+    ProgramArguments args = {.seed = -1, .array_size = -1, .process_count = -1, .use_files = false};
+    
+    if (!ParseArguments(argc, argv, &args)) return 1;
+    
+    int *array = malloc(sizeof(int) * args.array_size);
+    GenerateArray(array, args.array_size, args.seed);
+    
+    struct timeval start_time;
+    gettimeofday(&start_time, NULL);
 
-  while (true) {
-    int current_optind = optind ? optind : 1;
+    int pipes[args.process_count][2];
+    for (int process_index = 0; process_index < args.process_count; process_index++) {
+        if (!args.use_files && pipe(pipes[process_index]) == -1) {
+            perror("pipe");
+            return 1;
+        }
 
-    static struct option options[] = {{"seed", required_argument, 0, 0},
-                                      {"array_size", required_argument, 0, 0},
-                                      {"pnum", required_argument, 0, 0},
-                                      {"by_files", no_argument, 0, 'f'},
-                                      {0, 0, 0, 0}};
+        pid_t child_pid = fork();
+        if (child_pid == 0) {
+            RunChildProcess(process_index, array, args.array_size, args.process_count, args.use_files, pipes[process_index]);
+        } else if (child_pid < 0) {
+            perror("fork");
+            return 1;
+        }
+    }
 
+    // Ждем завершения всех дочерних процессов
+    for (int i = 0; i < args.process_count; i++) {
+        wait(NULL);
+    }
+
+    struct MinMax global_result = CollectResultsFromChildren(args.process_count, args.use_files, pipes);
+
+    struct timeval finish_time;
+    gettimeofday(&finish_time, NULL);
+
+    double elapsed_ms = (finish_time.tv_sec - start_time.tv_sec) * 1000.0;
+    elapsed_ms += (finish_time.tv_usec - start_time.tv_usec) / 1000.0;
+
+    printf("Min: %d\n", global_result.min);
+    printf("Max: %d\n", global_result.max);
+    printf("Elapsed time: %.2f ms\n", elapsed_ms);
+
+    free(array);
+    return 0;
+}
+
+bool ParseArguments(int argc, char **argv, ProgramArguments *arguments) {
     int option_index = 0;
-    int c = getopt_long(argc, argv, "f", options, &option_index);
+    static struct option long_options[] = {
+        {"seed", required_argument, 0, 0},
+        {"array_size", required_argument, 0, 0},
+        {"pnum", required_argument, 0, 0},
+        {"by_files", no_argument, 0, 'f'},
+        {0, 0, 0, 0}
+    };
 
-    if (c == -1) break;
+    while (true) {
+        int current_option = getopt_long(argc, argv, "f", long_options, &option_index);
+        if (current_option == -1) break;
 
-    switch (c) {
-      case 0:
-        switch (option_index) {
-          case 0:
-            seed = atoi(optarg);
-            // your code here
-            // error handling
-            break;
-          case 1:
-            array_size = atoi(optarg);
-            // your code here
-            // error handling
-            break;
-          case 2:
-            pnum = atoi(optarg);
-            // your code here
-            // error handling
-            break;
-          case 3:
-            with_files = true;
-            break;
-
-          defalut:
-            printf("Index %d is out of options\n", option_index);
+        switch (current_option) {
+            case 0:
+                switch (option_index) {
+                    case 0: arguments->seed = atoi(optarg); break;
+                    case 1: arguments->array_size = atoi(optarg); break;
+                    case 2: arguments->process_count = atoi(optarg); break;
+                    case 3: arguments->use_files = true; break;
+                }
+                break;
+            case 'f':
+                arguments->use_files = true;
+                break;
+            default:
+                printf("Invalid arguments\n");
+                return false;
         }
-        break;
-      case 'f':
-        with_files = true;
-        break;
-
-      case '?':
-        break;
-
-      default:
-        printf("getopt returned character code 0%o?\n", c);
     }
-  }
 
-  if (optind < argc) {
-    printf("Has at least one no option argument\n");
-    return 1;
-  }
+    if (arguments->seed <= 0 || arguments->array_size <= 0 || arguments->process_count <= 0) {
+        printf("Usage: --seed <num> --array_size <num> --pnum <num> [--by_files]\n");
+        return false;
+    }
 
-  if (seed == -1 || array_size == -1 || pnum == -1) {
-    printf("Usage: %s --seed \"num\" --array_size \"num\" --pnum \"num\" \n",
-           argv[0]);
-    return 1;
-  }
+    return true;
+}
 
-  int *array = malloc(sizeof(int) * array_size);
-  GenerateArray(array, array_size, seed);
-  int active_child_processes = 0;
+void RunChildProcess(
+    int process_index,
+    int *array,
+    int array_size,
+    int process_count,
+    bool use_files,
+    int pipe_fd[2]
+) {
+    int segment_size = array_size / process_count;
+    int start_index = process_index * segment_size;
+    int end_index = (process_index == process_count - 1)
+                        ? array_size
+                        : start_index + segment_size;
 
-  struct timeval start_time;
-  gettimeofday(&start_time, NULL);
+    struct MinMax result = GetMinMax(array, start_index, end_index);
 
-  for (int i = 0; i < pnum; i++) {
-    pid_t child_pid = fork();
-    if (child_pid >= 0) {
-      // successful fork
-      active_child_processes += 1;
-      if (child_pid == 0) {
-        // child process
+    if (use_files) {
+        SaveMinMaxToFile(process_index, result);
+    } else {
+        close(pipe_fd[0]); // Закрываем чтение
+        write(pipe_fd[1], &result, sizeof(result));
+        close(pipe_fd[1]);
+    }
 
-        // parallel somehow
+    exit(0); // Завершаем дочерний процесс
+}
 
-        if (with_files) {
-          // use files here
+void SaveMinMaxToFile(int process_index, struct MinMax result) {
+    char filename[256];
+    snprintf(filename, sizeof(filename), FILENAME_TEMPLATE, process_index);
+
+    FILE *file = fopen(filename, "w");
+    if (!file) {
+        perror("fopen");
+        exit(1);
+    }
+
+    fprintf(file, "%d %d\n", result.min, result.max);
+    fclose(file);
+}
+
+void LoadMinMaxFromFile(int process_index, struct MinMax *result) {
+    char filename[256];
+    snprintf(filename, sizeof(filename), FILENAME_TEMPLATE, process_index);
+
+    FILE *file = fopen(filename, "r");
+    if (!file) {
+        perror("fopen");
+        exit(1);
+    }
+
+    fscanf(file, "%d %d", &result->min, &result->max);
+    fclose(file);
+    remove(filename);
+}
+
+struct MinMax CollectResultsFromChildren(int process_count, bool use_files, int pipes[][2]) {
+    struct MinMax global_result;
+    global_result.min = INT_MAX;
+    global_result.max = INT_MIN;
+
+    for (int i = 0; i < process_count; i++) {
+        struct MinMax local_result;
+
+        if (use_files) {
+            LoadMinMaxFromFile(i, &local_result);
         } else {
-          // use pipe here
+            close(pipes[i][1]); // Закрываем запись
+            read(pipes[i][0], &local_result, sizeof(local_result));
+            close(pipes[i][0]);
         }
-        return 0;
-      }
 
-    } else {
-      printf("Fork failed!\n");
-      return 1;
-    }
-  }
-
-  while (active_child_processes > 0) {
-    // your code here
-
-    active_child_processes -= 1;
-  }
-
-  struct MinMax min_max;
-  min_max.min = INT_MAX;
-  min_max.max = INT_MIN;
-
-  for (int i = 0; i < pnum; i++) {
-    int min = INT_MAX;
-    int max = INT_MIN;
-
-    if (with_files) {
-      // read from files
-    } else {
-      // read from pipes
+        if (local_result.min < global_result.min) global_result.min = local_result.min;
+        if (local_result.max > global_result.max) global_result.max = local_result.max;
     }
 
-    if (min < min_max.min) min_max.min = min;
-    if (max > min_max.max) min_max.max = max;
-  }
-
-  struct timeval finish_time;
-  gettimeofday(&finish_time, NULL);
-
-  double elapsed_time = (finish_time.tv_sec - start_time.tv_sec) * 1000.0;
-  elapsed_time += (finish_time.tv_usec - start_time.tv_usec) / 1000.0;
-
-  free(array);
-
-  printf("Min: %d\n", min_max.min);
-  printf("Max: %d\n", min_max.max);
-  printf("Elapsed time: %fms\n", elapsed_time);
-  fflush(NULL);
-  return 0;
+    return global_result;
 }
