@@ -1,3 +1,4 @@
+#define _POSIX_SOURCE
 #include <ctype.h>
 #include <limits.h>
 #include <stdbool.h>
@@ -31,17 +32,18 @@
 #define NORMAL 0
 #define STILL_ALIVE 0
 #define NO_OPTION -1
+#define BASE 10
 
 typedef struct {
-    unsigned long seed;
-    unsigned long array_size;
+    unsigned long long seed;
+    unsigned long long array_size;
     int process_count;
     bool use_files;
     int timeout;
 } ProgramArguments;
 
 bool ParseArguments(int argc, char **argv, ProgramArguments *arguments);
-void RunChildProcess(int process_index, int *array, long array_size, int process_count, bool use_files, int pipe_fd[2]);
+void RunChildProcess(int process_index, int *array, unsigned long long array_size, int process_count, bool use_files, int pipe_fd[2]);
 void SaveMinMaxToFile(int process_index, struct MinMax result);
 void LoadMinMaxFromFile(int process_index, struct MinMax *result);
 void TimeoutHandler(int signal);
@@ -66,6 +68,10 @@ int main(int argc, char **argv) {
     signal(SIGALRM, TimeoutHandler);
     
     int *array = malloc(sizeof(int) * args.array_size);
+    if (array == NULL) {
+        perror("Not enough memory for specified size");
+    }
+
     GenerateArray(array, args.array_size, args.seed);
     
     struct timeval start_time;
@@ -150,10 +156,10 @@ bool ParseArguments(int argc, char **argv, ProgramArguments *arguments) {
             case 0:
                 switch (option_index) {
                     case 0:
-                        arguments->seed = atol(optarg);
+                        arguments->seed = strtoull(optarg, NULL, BASE);
                         break;
                     case 1:
-                        arguments->array_size = atol(optarg);
+                        arguments->array_size = strtoull(optarg, NULL, BASE);
                         break;
                     case 2:
                         arguments->process_count = atoi(optarg);
@@ -186,14 +192,14 @@ bool ParseArguments(int argc, char **argv, ProgramArguments *arguments) {
 void RunChildProcess(
     int process_index,
     int *array,
-    long array_size,
+    unsigned long long array_size,
     int process_count,
     bool use_files,
     int pipe_fd[DESCRIPTORS_COUNT]
 ) {
-    int segment_size = array_size / process_count;
-    unsigned long start_index = process_index * segment_size;
-    unsigned long end_index = (process_index == process_count - 1)
+    unsigned long long segment_size = array_size / process_count;
+    unsigned long long start_index = process_index * segment_size;
+    unsigned long long end_index = (process_index == process_count - 1)
                         ? array_size
                         : start_index + segment_size;
 

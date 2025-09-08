@@ -2,12 +2,12 @@
 
 #include <limits.h>
 
-struct MinMax GetMinMax(int *array, unsigned long begin, unsigned long end) {
+struct MinMax GetMinMax(int *array, unsigned long long begin, unsigned long long end) {
   struct MinMax min_max;
   min_max.min = INT_MAX;
   min_max.max = INT_MIN;
 
-  for (unsigned long i = begin; i < end; i++) {
+  for (unsigned long long i = begin; i < end; i++) {
     int currentNumber = array[i];
 
     if (currentNumber > min_max.max) {
