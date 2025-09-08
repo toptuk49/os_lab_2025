@@ -5,6 +5,9 @@
 !*.*
 ## Unignore directories (to allow traversing directories)
 !*/
+## Unignore makefiles
+!makefile
+!Makefile
 
 # Prerequisites
 *.d
