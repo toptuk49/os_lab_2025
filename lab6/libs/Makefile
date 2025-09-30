@@ -30,10 +30,10 @@ $(BUILD_DIR)/server_arguments.o: server_arguments.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/libstring_converter.$(SO_EXTENSION): string_converter.c
-	$(CC) $(CFLAGS) $(DYNAMIC_LIB) $< -o $@ $(SONAME_FLAG)libstring_converter.so
+	$(CC) $(CFLAGS) $(DYNAMIC_LIB) $< -o $@ $(SONAME_FLAG)libstring_converter.$(SO_EXTENSION)
 
 $(BUILD_DIR)/libsafe_modulo_multiplication.$(SO_EXTENSION): safe_modulo_multiplication.c
-	$(CC) $(CFLAGS) $(DYNAMIC_LIB) $< -o $@ $(SONAME_FLAG)libsafe_modulo_multiplication.so
+	$(CC) $(CFLAGS) $(DYNAMIC_LIB) $< -o $@ $(SONAME_FLAG)libsafe_modulo_multiplication.$(SO_EXTENSION)
 
 clean:
 	rm $(BUILD_DIR)/*.$(SO_EXTENSION) $(BUILD_DIR)/*.a $(BUILD_DIR)/*.o
