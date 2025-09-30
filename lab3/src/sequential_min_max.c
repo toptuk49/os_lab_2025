@@ -1,23 +1,29 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "find_min_max.h"
-#include "utils.h"
+#include "../libs/find_min_max.h"
+#include "../libs/utils.h"
 
-int main(int argc, char **argv) {
-  if (argc != 3) {
+#define BASE 10
+
+int main(int argc, char **argv)
+{
+  if (argc != 3)
+  {
     printf("Usage: %s seed arraysize\n", argv[0]);
     return 1;
   }
 
-  int seed = atoi(argv[1]);
-  if (seed <= 0) {
+  int seed = (int)strtol(argv[1], NULL, BASE);
+  if (seed <= 0)
+  {
     printf("seed is a positive number\n");
     return 1;
   }
 
-  int array_size = atoi(argv[2]);
-  if (array_size <= 0) {
+  int array_size = (int)strtol(argv[2], NULL, BASE);
+  if (array_size <= 0)
+  {
     printf("array_size is a positive number\n");
     return 1;
   }
