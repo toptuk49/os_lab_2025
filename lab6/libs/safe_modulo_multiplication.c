@@ -1,15 +1,19 @@
-#include <inttypes.h>
-
 #include "safe_modulo_multiplication.h"
 
-uint64_t SafeModuloMultiplication(uint64_t a, uint64_t b, uint64_t mod) {
+#include <inttypes.h>
+
+uint64_t SafeModuloMultiplication(uint64_t left, uint64_t right, uint64_t mod)
+{
   uint64_t result = 0;
-  a = a % mod;
-  while (b > 0) {
-    if (b % 2 == 1)
-      result = (result + a) % mod;
-    a = (a * 2) % mod;
-    b /= 2;
+  left = left % mod;
+  while (right > 0)
+  {
+    if (right % 2 == 1)
+    {
+      result = (result + left) % mod;
+    }
+    left = (left * 2) % mod;
+    right /= 2;
   }
 
   return result % mod;

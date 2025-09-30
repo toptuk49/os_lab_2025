@@ -3,6 +3,6 @@
 
 #include <inttypes.h>
 
-uint64_t SafeModuloMultiplication(uint64_t a, uint64_t b, uint64_t mod);
+uint64_t SafeModuloMultiplication(uint64_t left, uint64_t right, uint64_t mod);
 
 #endif
