@@ -6,7 +6,10 @@ LIB_DIR=libs
 ABS_BUILD_DIR=$(shell cd $(BUILD_DIR) && pwd)
 DYNAMIC_CFLAGS=-Wl,-rpath,$(ABS_BUILD_DIR)
 
-all: $(BUILD_DIR)/parallel_min_max $(BUILD_DIR)/parallel_sum $(BUILD_DIR)/process_memory $(BUILD_DIR)/zombie_processes
+all: $(BUILD_DIR) $(BUILD_DIR)/parallel_min_max $(BUILD_DIR)/parallel_sum $(BUILD_DIR)/process_memory $(BUILD_DIR)/zombie_processes
+
+$(BUILD_DIR):
+	mkdir -p $(BUILD_DIR)
 
 $(BUILD_DIR)/parallel_min_max: $(BUILD_DIR)/parallel_min_max.o
 	$(CC) $(CFLAGS) $< -o $@ -L$(BUILD_DIR) -lutils -lfind_min_max $(DYNAMIC_CFLAGS)
