@@ -5,10 +5,11 @@
 pthread_mutex_t firstLock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t secondLock = PTHREAD_MUTEX_INITIALIZER;
 
-void *firstThreadWork(void *arg);
-void *secondThreadWork(void *arg);
+void *FirstThreadWork();
+void *SecondThreadWork();
 
-void *firstThreadWork(void *arg) {
+void *FirstThreadWork()
+{
   pthread_mutex_lock(&firstLock);
   printf("Поток 1 захватил Мютекс 1");
 
@@ -22,7 +23,8 @@ void *firstThreadWork(void *arg) {
   return NULL;
 }
 
-void *secondThreadWork(void *arg) {
+void *SecondThreadWork()
+{
   pthread_mutex_lock(&secondLock);
   printf("Поток 2 захватил Мютекс 2");
 
@@ -36,11 +38,13 @@ void *secondThreadWork(void *arg) {
   return NULL;
 }
 
-int main() {
-  pthread_t firstThread, secondThread;
+int main()
+{
+  pthread_t firstThread;
+  pthread_t secondThread;
 
-  pthread_create(&firstThread, NULL, firstThreadWork, NULL);
-  pthread_create(&secondThread, NULL, secondThreadWork, NULL);
+  pthread_create(&firstThread, NULL, FirstThreadWork, NULL);
+  pthread_create(&secondThread, NULL, SecondThreadWork, NULL);
 
   pthread_join(firstThread, NULL);
   pthread_join(secondThread, NULL);
