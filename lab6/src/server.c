@@ -11,85 +11,25 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 
+#include "../libs/safe_modulo_multiplication.h"
+#include "../libs/server_arguments.h"
 #include "pthread.h"
 
-struct FactorialArgs {
-  uint64_t begin;
+typedef struct {
+  uint64_t start;
   uint64_t end;
-  uint64_t mod;
-};
+} Range;
 
-uint64_t MultModulo(uint64_t a, uint64_t b, uint64_t mod) {
-  uint64_t result = 0;
-  a = a % mod;
-  while (b > 0) {
-    if (b % 2 == 1)
-      result = (result + a) % mod;
-    a = (a * 2) % mod;
-    b /= 2;
-  }
+void *ThreadFunction(void *arg);
+uint64_t FactorialRange(Range *range);
 
-  return result % mod;
-}
-
-uint64_t Factorial(const struct FactorialArgs *args) {
-  uint64_t ans = 1;
-
-  // TODO: your code here
-
-  return ans;
-}
-
-void *ThreadFactorial(void *args) {
-  struct FactorialArgs *fargs = (struct FactorialArgs *)args;
-  return (void *)(uint64_t *)Factorial(fargs);
-}
+ProgramArguments args = {.tnum = -1, .port = -1, .mod = -1};
+uint64_t result = 1;
+pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
 int main(int argc, char **argv) {
-  int tnum = -1;
-  int port = -1;
-
-  while (true) {
-    int current_optind = optind ? optind : 1;
-
-    static struct option options[] = {{"port", required_argument, 0, 0},
-                                      {"tnum", required_argument, 0, 0},
-                                      {0, 0, 0, 0}};
-
-    int option_index = 0;
-    int c = getopt_long(argc, argv, "", options, &option_index);
-
-    if (c == -1)
-      break;
-
-    switch (c) {
-    case 0: {
-      switch (option_index) {
-      case 0:
-        port = atoi(optarg);
-        // TODO: your code here
-        break;
-      case 1:
-        tnum = atoi(optarg);
-        // TODO: your code here
-        break;
-      default:
-        printf("Index %d is out of options\n", option_index);
-      }
-    } break;
-
-    case '?':
-      printf("Unknown argument\n");
-      break;
-    default:
-      fprintf(stderr, "getopt returned character code 0%o?\n", c);
-    }
-  }
-
-  if (port == -1 || tnum == -1) {
-    fprintf(stderr, "Using: %s --port 20001 --tnum 4\n", argv[0]);
+  if (!parseArguments(&argc, &argv, &args))
     return 1;
-  }
 
   int server_fd = socket(AF_INET, SOCK_STREAM, 0);
   if (server_fd < 0) {
@@ -99,7 +39,7 @@ int main(int argc, char **argv) {
 
   struct sockaddr_in server;
   server.sin_family = AF_INET;
-  server.sin_port = htons((uint16_t)port);
+  server.sin_port = htons((uint16_t)args.port);
   server.sin_addr.s_addr = htonl(INADDR_ANY);
 
   int opt_val = 1;
@@ -107,17 +47,17 @@ int main(int argc, char **argv) {
 
   int err = bind(server_fd, (struct sockaddr *)&server, sizeof(server));
   if (err < 0) {
-    fprintf(stderr, "Can not bind to socket!");
+    printf("Can not bind to socket!");
     return 1;
   }
 
   err = listen(server_fd, 128);
   if (err < 0) {
-    fprintf(stderr, "Could not listen on socket\n");
+    printf("Could not listen on socket\n");
     return 1;
   }
 
-  printf("Server listening at %d\n", port);
+  printf("Server listening at %d\n", args.port);
 
   while (true) {
     struct sockaddr_in client;
@@ -125,7 +65,7 @@ int main(int argc, char **argv) {
     int client_fd = accept(server_fd, (struct sockaddr *)&client, &client_len);
 
     if (client_fd < 0) {
-      fprintf(stderr, "Could not establish new connection\n");
+      printf("Could not establish new connection\n");
       continue;
     }
 
@@ -137,15 +77,13 @@ int main(int argc, char **argv) {
       if (!read)
         break;
       if (read < 0) {
-        fprintf(stderr, "Client read failed\n");
+        printf("Client read failed\n");
         break;
       }
       if (read < buffer_size) {
-        fprintf(stderr, "Client send wrong data format\n");
+        printf("Client send wrong data format\n");
         break;
       }
-
-      pthread_t threads[tnum];
 
       uint64_t begin = 0;
       uint64_t end = 0;
@@ -154,36 +92,29 @@ int main(int argc, char **argv) {
       memcpy(&end, from_client + sizeof(uint64_t), sizeof(uint64_t));
       memcpy(&mod, from_client + 2 * sizeof(uint64_t), sizeof(uint64_t));
 
-      fprintf(stdout, "Receive: %llu %llu %llu\n", begin, end, mod);
+      pthread_t threads[args.tnum];
+      Range ranges[args.tnum];
 
-      struct FactorialArgs args[tnum];
-      for (uint32_t i = 0; i < tnum; i++) {
-        // TODO: parallel somehow
-        args[i].begin = 1;
-        args[i].end = 1;
-        args[i].mod = mod;
+      unsigned long long chunk = end / args.tnum;
+      unsigned long long start = 1;
 
-        if (pthread_create(&threads[i], NULL, ThreadFactorial,
-                           (void *)&args[i])) {
-          printf("Error: pthread_create failed!\n");
-          return 1;
-        }
+      for (int i = 0; i < args.tnum; i++) {
+        ranges[i].start = start;
+        ranges[i].end = (i == args.tnum - 1) ? end : (start + chunk - 1);
+        start = ranges[i].end + 1;
+
+        pthread_create(&threads[i], NULL, ThreadFunction, &ranges[i]);
       }
 
-      uint64_t total = 1;
-      for (uint32_t i = 0; i < tnum; i++) {
-        uint64_t result = 0;
-        pthread_join(threads[i], (void **)&result);
-        total = MultModulo(total, result, mod);
+      for (int i = 0; i < args.tnum; i++) {
+        pthread_join(threads[i], NULL);
       }
 
-      printf("Total: %llu\n", total);
-
-      char buffer[sizeof(total)];
-      memcpy(buffer, &total, sizeof(total));
-      err = send(client_fd, buffer, sizeof(total), 0);
+      char buffer[sizeof(result)];
+      memcpy(buffer, &result, sizeof(result));
+      err = send(client_fd, buffer, sizeof(result), 0);
       if (err < 0) {
-        fprintf(stderr, "Can't send data to client\n");
+        printf("Can't send data to client\n");
         break;
       }
     }
@@ -193,4 +124,24 @@ int main(int argc, char **argv) {
   }
 
   return 0;
+}
+
+uint64_t FactorialRange(Range *range) {
+  uint64_t accumulator = 1;
+  for (uint64_t i = range->start; i <= range->end; i++) {
+    accumulator = SafeModuloMultiplication(accumulator, i, args.mod);
+  }
+
+  return accumulator;
+}
+
+void *ThreadFunction(void *arg) {
+  Range *range = (Range *)arg;
+  unsigned long long partial = FactorialRange(range);
+
+  pthread_mutex_lock(&lock);
+  result = SafeModuloMultiplication(result, partial, args.mod);
+  pthread_mutex_unlock(&lock);
+
+  return NULL;
 }
