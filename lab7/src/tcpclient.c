@@ -1,4 +1,5 @@
 #include <arpa/inet.h>
+#include <inttypes.h>
 #include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,48 +8,110 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#define BUFSIZE 100
+#include "../libs/client_arguments.h"
+
 #define SADDR struct sockaddr
 #define SIZE sizeof(struct sockaddr_in)
+#define PROMPT_MESSAGE "Введите сообщение, которое хотите отправить:\n"
 
-int main(int argc, char *argv[]) {
-  int fd;
-  int nread;
-  char buf[BUFSIZE];
-  struct sockaddr_in servaddr;
-  if (argc < 3) {
-    printf("Too few arguments \n");
+int main(int argc, char *argv[])
+{
+  ProgramArguments args;
+
+  if (!parse_arguments(&argc, &argv, &args))
+  {
+    return 1;
+  }
+
+  int socket_descriptor;
+  int bytes_read;
+  int bytes_received;
+  char *send_buffer = (char *)malloc(args.buffer_size);
+  char *receive_buffer = (char *)malloc(args.buffer_size);
+  if (send_buffer == NULL || receive_buffer == NULL)
+  {
+    printf("Произошла ошибка при выделении памяти!\n");
+    free_program_arguments(&args);
+    free(send_buffer);
+    free(receive_buffer);
+    return 1;
+  }
+
+  struct sockaddr_in server_address;
+
+  socket_descriptor = socket(AF_INET, SOCK_STREAM, 0);
+  if (socket_descriptor < 0)
+  {
+    printf("Произошла ошибка при создании сокета!\n");
+    free_program_arguments(&args);
+    free(send_buffer);
+    free(receive_buffer);
     exit(1);
   }
 
-  if ((fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-    perror("socket creating");
+  memset(&server_address, 0, SIZE);
+  server_address.sin_family = AF_INET;
+
+  if (inet_pton(AF_INET, args.ip, &server_address.sin_addr) <= 0)
+  {
+    printf("Введен неверный ip адрес!\n");
+    free_program_arguments(&args);
+    free(send_buffer);
+    free(receive_buffer);
+    close(socket_descriptor);
     exit(1);
   }
 
-  memset(&servaddr, 0, SIZE);
-  servaddr.sin_family = AF_INET;
+  server_address.sin_port = htons((uint16_t)args.port);
 
-  if (inet_pton(AF_INET, argv[1], &servaddr.sin_addr) <= 0) {
-    perror("bad address");
+  if (connect(socket_descriptor, (SADDR *)&server_address, SIZE) < 0)
+  {
+    printf("Произошла ошибка при попытке соединения с сервером!\n");
+    free_program_arguments(&args);
+    free(send_buffer);
+    free(receive_buffer);
+    close(socket_descriptor);
     exit(1);
   }
 
-  servaddr.sin_port = htons(atoi(argv[2]));
-
-  if (connect(fd, (SADDR *)&servaddr, SIZE) < 0) {
-    perror("connect");
-    exit(1);
-  }
-
-  write(1, "Input message to send\n", 22);
-  while ((nread = read(0, buf, BUFSIZE)) > 0) {
-    if (write(fd, buf, nread) < 0) {
-      perror("write");
+  write(STDOUT_FILENO, PROMPT_MESSAGE, strlen(PROMPT_MESSAGE));
+  while ((bytes_read = (int)read(0, send_buffer, args.buffer_size)) > 0)
+  {
+    if (write(socket_descriptor, send_buffer, bytes_read) < 0)
+    {
+      printf("Произошла ошибка при отправке сообщения на сервер!\n");
+      free_program_arguments(&args);
+      free(send_buffer);
+      free(receive_buffer);
+      close(socket_descriptor);
       exit(1);
     }
+
+    bytes_received =
+      (int)read(socket_descriptor, receive_buffer, args.buffer_size - 1);
+    if (bytes_received < 0)
+    {
+      printf("Произошла ошибка при получении ответа от сервера!\n");
+      free_program_arguments(&args);
+      free(send_buffer);
+      free(receive_buffer);
+      close(socket_descriptor);
+      exit(1);
+    }
+
+    if (bytes_received == 0)
+    {
+      printf("Сервер закрыл соединение!\n");
+      break;
+    }
+
+    receive_buffer[bytes_received] = '\0';
+    printf("Ответ от сервера: %s\n", receive_buffer);
   }
 
-  close(fd);
+  free_program_arguments(&args);
+  free(send_buffer);
+  free(receive_buffer);
+  close(socket_descriptor);
   exit(0);
 }

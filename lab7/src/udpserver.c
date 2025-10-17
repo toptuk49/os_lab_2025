@@ -1,5 +1,6 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,49 +9,85 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#define SERV_PORT 20001
-#define BUFSIZE 1024
+#include "../libs/udpserver_arguments.h"
+
 #define SADDR struct sockaddr
 #define SLEN sizeof(struct sockaddr_in)
+#define IPV4_LENGTH 16
 
-int main() {
-  int sockfd, n;
-  char mesg[BUFSIZE], ipadr[16];
-  struct sockaddr_in servaddr;
-  struct sockaddr_in cliaddr;
+int main(int argc, char **argv)
+{
+  ProgramArguments args;
 
-  if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-    perror("socket problem");
+  if (!parse_arguments(&argc, &argv, &args))
+  {
+    return 1;
+  }
+
+  int socket_descriptor;
+  int bytes_read;
+  char *message = (char *)malloc(args.buffer_size);
+  if (message == NULL)
+  {
+    printf("Произошла ошибка при выделении памяти!\n");
+    return 1;
+  }
+
+  char ip_address[IPV4_LENGTH];
+  struct sockaddr_in server_address;
+  struct sockaddr_in client_address;
+
+  socket_descriptor = socket(AF_INET, SOCK_DGRAM, 0);
+  if (socket_descriptor < 0)
+  {
+    printf("Произошла ошибка при создании сокета!\n");
+    free(message);
     exit(1);
   }
 
-  memset(&servaddr, 0, SLEN);
-  servaddr.sin_family = AF_INET;
-  servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
-  servaddr.sin_port = htons(SERV_PORT);
+  memset(&server_address, 0, SLEN);
+  server_address.sin_family = AF_INET;
+  server_address.sin_addr.s_addr = htonl(INADDR_ANY);
+  server_address.sin_port = htons(args.port);
 
-  if (bind(sockfd, (SADDR *)&servaddr, SLEN) < 0) {
-    perror("bind problem");
+  if (bind(socket_descriptor, (SADDR *)&server_address, SLEN) < 0)
+  {
+    printf(
+      "Произошла ошибка при привязке послушивающего сокета к адресу "
+      "сервера!\n");
+    free(message);
+    close(socket_descriptor);
     exit(1);
   }
-  printf("SERVER starts...\n");
+  printf("Сервер запускается на порту %d...\n", args.port);
 
-  while (1) {
+  while (true)
+  {
     unsigned int len = SLEN;
 
-    if ((n = recvfrom(sockfd, mesg, BUFSIZE, 0, (SADDR *)&cliaddr, &len)) < 0) {
-      perror("recvfrom");
-      exit(1);
+    bytes_read = (int)recvfrom(socket_descriptor, message, args.buffer_size, 0,
+                               (SADDR *)&client_address, &len);
+    if (bytes_read < 0)
+    {
+      printf("Произошла ошибка при получении сообщения от клиента!\n");
+      continue;
     }
-    mesg[n] = 0;
+    message[bytes_read] = 0;
 
-    printf("REQUEST %s      FROM %s : %d\n", mesg,
-           inet_ntop(AF_INET, (void *)&cliaddr.sin_addr.s_addr, ipadr, 16),
-           ntohs(cliaddr.sin_port));
+    printf("СООБЩЕНИЕ %s      ОТ %s : %d\n", message,
+           inet_ntop(AF_INET, (void *)&client_address.sin_addr.s_addr,
+                     ip_address, IPV4_LENGTH),
+           ntohs(client_address.sin_port));
 
-    if (sendto(sockfd, mesg, n, 0, (SADDR *)&cliaddr, len) < 0) {
-      perror("sendto");
-      exit(1);
+    if (sendto(socket_descriptor, message, bytes_read, 0,
+               (SADDR *)&client_address, len) < 0)
+    {
+      printf("Произошла ошибка при отправке сообщения клиенту!\n");
+      continue;
     }
   }
+
+  free(message);
+  close(socket_descriptor);
+  return 0;
 }
